@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>画像切り取りツール (Ver.0.3)</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            box-sizing: border-box; /* paddingを含めたサイズ計算 */
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        /* バージョン表示用のスタイル */
+        .version-info {
+            font-size: 0.7em; /* 親のh1に対して小さく */
+            color: #666;
+            margin-left: 10px;
+        }
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+        .canvas-container {
+            text-align: center;
+            margin: 20px 0;
+            position: relative;
+            /* キャンバスの親要素にmax-widthを適用し、子がはみ出さないように */
+            max-width: 100%;
+            overflow: hidden; /* はみ出しを隠す */
+        }
+        canvas {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            cursor: crosshair;
+            /* キャンバス自体は親の幅に合わせる */
+            max-width: 100%;
+            height: auto; /* 高さは自動調整 */
+            display: block; /* 余白をなくす */
+            margin: 0 auto; /* 中央揃え */
+            touch-action: none; /* タッチスクロールを無効にしてドラッグを優先 */
+        }
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+        button {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 0 10px;
+            transition: all 0.3s ease;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .info {
+            background: #f0f8ff;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #667eea;
+        }
+        #result {
+            text-align: center;
+            margin-top: 20px;
+        }
+        #result img {
+            max-width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            border: 2px solid #ddd; /* 切り取り結果にもボーダー */
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📸 画像切り取りツール <span class="version-info">(Ver.0.3)</span></h1>
+        
+        <div class="upload-area">
+            <input type="file" id="imageInput" accept="image/*" style="display: none;">
+            <label for="imageInput" style="cursor: pointer;">
+                <div>📁 画像ファイルを選択してください</div>
+                <div style="color: #666; font-size: 14px; margin-top: 5px;">クリックしてファイルを選択</div>
+            </label>
+        </div>
+
+        <div class="info">
+            <strong>使い方:</strong> 画像をアップロード後、マウス（または指）でドラッグして切り取り範囲を選択してください。<br>
+            ※一度マウス（または指）を離すと、再度ドラッグで新しい範囲を指定し直せます。
+        </div>
+
+        <div class="canvas-container">
+            <canvas id="canvas"></canvas>
+        </div>
+
+        <div class="controls">
+            <button id="cropBtn" disabled>切り取る</button>
+            <button id="resetBtn" disabled>リセット</button>
+            <button id="downloadBtn" disabled>ダウンロード</button>
+        </div>
+
+        <div id="result"></div>
+    </div>
+
+    <script>
+        /**
+         * 画像切り取りツール - バージョン管理メモ
+         * ------------------------------------
+         * 現在のバージョン: Ver.0.3
+         * * バージョンアップ履歴:
+         * - Ver.0.0: 初期リリース
+         * - Ver.0.1: 機能追加、バグ修正など（詳細不明）
+         * - Ver.0.2: 機能追加、バグ修正など（詳細不明、提供されたコードの初期バージョン）
+         * - Ver.0.3: Android (タッチイベント) 対応、およびリファクタリング、バージョン表示調整
+         * * バージョンアップルール:
+         * - ソースコードを変更するたびに、末尾の数字を +0.1 ずつ増加させます。
+         * - 例: 0.1 -> 0.2 -> 0.3
+         * * 更新内容の記録:
+         * - 大規模な変更や重要な機能追加の場合は、コメントとして詳細を記述することを推奨します。
+         * ------------------------------------
+         */
+
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const imageInput = document.getElementById('imageInput');
+        const cropBtn = document.getElementById('cropBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const result = document.getElementById('result');
+
+        let img = null;
+        let originalImageWidth = 0; // 元画像のピクセル幅
+        let originalImageHeight = 0; // 元画像のピクセル高さ
+
+        let isDrawing = false;
+        let startX, startY, currentX, currentY; // キャンバス上の描画座標
+
+        // 確定した選択範囲の座標（キャンバス上）
+        let selectionRect = { x: 0, y: 0, width: 0, height: 0 };
+        let hasSelection = false; // 選択範囲があるかどうかのフラグ
+
+        // バージョン表示の更新
+        document.title = `画像切り取りツール (Ver.0.3)`;
+        const versionInfoSpan = document.querySelector('.version-info');
+        if (versionInfoSpan) {
+            versionInfoSpan.textContent = `(Ver.0.3)`;
+        }
+
+        imageInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    img = new Image();
+                    img.onload = function() {
+                        originalImageWidth = img.width;
+                        originalImageHeight = img.height;
+
+                        // キャンバスのサイズを調整（表示用）
+                        // bodyのmax-width: 800px; padding: 20px; container padding: 30px;
+                        // 800 - (20*2) - (30*2) = 800 - 40 - 60 = 700px が実質的な最大幅
+                        const maxCanvasWidth = Math.min(originalImageWidth, 700); // 親要素の幅に合わせて調整
+                        const maxCanvasHeight = 400; // 例として最大高さを設定（任意）
+
+                        let displayWidth = originalImageWidth;
+                        let displayHeight = originalImageHeight;
+
+                        // 縦横比を維持してキャンバスサイズを決定
+                        if (displayWidth > maxCanvasWidth) {
+                            displayHeight = (displayHeight * maxCanvasWidth) / displayWidth;
+                            displayWidth = maxCanvasWidth;
+                        }
+                        if (displayHeight > maxCanvasHeight) {
+                            displayWidth = (displayWidth * maxCanvasHeight) / displayHeight;
+                            displayHeight = maxCanvasHeight;
+                        }
+
+                        canvas.width = displayWidth;
+                        canvas.height = displayHeight;
+                        
+                        // 画像をキャンバスに描画
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        
+                        resetSelection(); // 以前の選択範囲をリセット
+                        resetButtons();
+                        resetBtn.disabled = false;
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        /**
+         * 範囲指定ロジック (マウスイベントとタッチイベントの共通処理)
+         */
+        function getEventCoords(event) {
+            const rect = canvas.getBoundingClientRect();
+            let clientX, clientY;
+
+            // タッチイベントの場合は最初のタッチポイントを使用
+            if (event.touches && event.touches.length > 0) {
+                clientX = event.touches[0].clientX;
+                clientY = event.touches[0].clientY;
+            } else { // マウスイベントの場合
+                clientX = event.clientX;
+                clientY = event.clientY;
+            }
+            
+            return {
+                x: clientX - rect.left,
+                y: clientY - rect.top
+            };
+        }
+
+        function startDrawing(e) {
+            if (!img) return;
+            // デフォルトのイベントを防ぐ (特にタッチイベントでのスクロール防止)
+            e.preventDefault(); 
+            isDrawing = true;
+            const coords = getEventCoords(e);
+            startX = coords.x;
+            startY = coords.y;
+            currentX = startX; // 初期値を設定
+            currentY = startY; // 初期値を設定
+
+            hasSelection = false; // 新しい選択を開始するのでリセット
+            cropBtn.disabled = true; // 新しい選択中は切り取りを無効に
+            downloadBtn.disabled = true; // 新しい選択中はダウンロードを無効に
+            result.innerHTML = ''; // 結果をクリア
+        }
+
+        function drawWhileDrawing(e) {
+            if (!isDrawing || !img) return;
+            e.preventDefault(); // デフォルトのイベントを防ぐ
+            const coords = getEventCoords(e);
+            currentX = coords.x;
+            currentY = coords.y;
+            
+            drawCanvasAndSelection();
+        }
+
+        function endDrawing(e) {
+            if (!isDrawing || !img) return;
+            isDrawing = false;
+
+            // 選択範囲を確定
+            const rectWidth = Math.abs(currentX - startX);
+            const rectHeight = Math.abs(currentY - startY);
+            const rectX = Math.min(startX, currentX);
+            const rectY = Math.min(startY, currentY);
+
+            if (rectWidth > 0 && rectHeight > 0) {
+                selectionRect = { x: rectX, y: rectY, width: rectWidth, height: rectHeight };
+                hasSelection = true;
+                cropBtn.disabled = false;
+            } else {
+                // 選択範囲が有効でない場合はボタンを無効に
+                resetSelection();
+            }
+            drawCanvasAndSelection(); // 最後の描画で選択範囲を確定表示
+        }
+
+        // マウスイベントリスナー
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', drawWhileDrawing);
+        canvas.addEventListener('mouseup', endDrawing);
+        canvas.addEventListener('mouseleave', endDrawing); // キャンバスから離れた場合も終了
+
+        // タッチイベントリスナー
+        canvas.addEventListener('touchstart', startDrawing, { passive: false }); // preventDefaultを許可
+        canvas.addEventListener('touchmove', drawWhileDrawing, { passive: false }); // preventDefaultを許可
+        canvas.addEventListener('touchend', endDrawing);
+        canvas.addEventListener('touchcancel', endDrawing); // タッチが中断された場合も終了
+
+        function drawCanvasAndSelection() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            
+            // 現在ドラッグ中の選択範囲を描画
+            if (isDrawing) {
+                ctx.strokeStyle = '#ff0000';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(startX, startY, currentX - startX, currentY - startY);
+            }
+            // 確定した選択範囲を描画（もしあれば）
+            else if (hasSelection) {
+                ctx.strokeStyle = '#0000ff'; // 確定後の色
+                ctx.lineWidth = 2;
+                ctx.strokeRect(selectionRect.x, selectionRect.y, selectionRect.width, selectionRect.height);
+            }
+        }
+
+        // 切り取りボタン
+        cropBtn.addEventListener('click', function() {
+            if (!img || !hasSelection) return;
+            
+            // キャンバス上の表示サイズと元の画像サイズの比率
+            const scaleX = originalImageWidth / canvas.width;
+            const scaleY = originalImageHeight / canvas.height;
+
+            // 元画像上の切り取り範囲のピクセル座標とサイズを計算
+            const cropX = selectionRect.x * scaleX;
+            const cropY = selectionRect.y * scaleY;
+            const cropWidth = selectionRect.width * scaleX;
+            const cropHeight = selectionRect.height * scaleY;
+            
+            if (cropWidth > 0 && cropHeight > 0) {
+                const cropCanvas = document.createElement('canvas');
+                const cropCtx = cropCanvas.getContext('2d');
+                
+                // 切り取り用キャンバスのサイズは、元画像の切り取り範囲のピクセルサイズにする
+                cropCanvas.width = cropWidth;
+                cropCanvas.height = cropHeight;
+                
+                // 元画像を実寸で切り取り、切り取り用キャンバスに描画
+                cropCtx.drawImage(img,
+                    cropX, cropY, cropWidth, cropHeight, // 元画像のどの範囲を切り取るか
+                    0, 0, cropWidth, cropHeight // 切り取り用キャンバスのどこに、どのサイズで描画するか
+                );
+                
+                // 結果を表示
+                const croppedImageURL = cropCanvas.toDataURL('image/png'); // 高画質を保つためPNG推奨
+                result.innerHTML = `
+                    <h3>切り取り結果</h3>
+                    <img src="${croppedImageURL}" alt="切り取り結果">
+                `;
+                downloadBtn.disabled = false;
+            } else {
+                // 選択範囲が不正な場合
+                alert('有効な切り取り範囲を選択してください。');
+            }
+        });
+
+        // リセットボタン
+        resetBtn.addEventListener('click', function() {
+            if (img) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                resetSelection();
+                resetButtons();
+            }
+        });
+
+        // ダウンロードボタン
+        downloadBtn.addEventListener('click', function() {
+            const croppedImageElement = result.querySelector('img');
+            if (croppedImageElement && croppedImageElement.src) {
+                const link = document.createElement('a');
+                link.download = 'cropped-image.png'; // ダウンロードファイル名
+                link.href = croppedImageElement.src;
+                link.click();
+            }
+        });
+
+        function resetSelection() {
+            selectionRect = { x: 0, y: 0, width: 0, height: 0 };
+            hasSelection = false;
+            if (img) {
+                drawCanvasAndSelection(); // 選択範囲をクリアして再描画
+            }
+            result.innerHTML = '';
+        }
+
+        function resetButtons() {
+            cropBtn.disabled = true;
+            downloadBtn.disabled = true;
+            // imageInput.value = ''; // ファイル入力のリセットは不要ならコメントアウト
+        }
+    </script>
+</body>
+</html>
