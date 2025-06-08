@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>画像切り取りツール</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+        .canvas-container {
+            text-align: center;
+            margin: 20px 0;
+            position: relative;
+        }
+        canvas {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            cursor: crosshair;
+            max-width: 100%;
+        }
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+        button {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 0 10px;
+            transition: all 0.3s ease;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .info {
+            background: #f0f8ff;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #667eea;
+        }
+        #result {
+            text-align: center;
+            margin-top: 20px;
+        }
+        #result img {
+            max-width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📸 画像切り取りツール</h1>
+        
+        <div class="upload-area">
+            <input type="file" id="imageInput" accept="image/*" style="display: none;">
+            <label for="imageInput" style="cursor: pointer;">
+                <div>📁 画像ファイルを選択してください</div>
+                <div style="color: #666; font-size: 14px; margin-top: 5px;">クリックしてファイルを選択</div>
+            </label>
+        </div>
+
+        <div class="info">
+            <strong>使い方:</strong> 画像をアップロード後、マウスでドラッグして切り取り範囲を選択してください
+        </div>
+
+        <div class="canvas-container">
+            <canvas id="canvas"></canvas>
+        </div>
+
+        <div class="controls">
+            <button id="cropBtn" disabled>切り取る</button>
+            <button id="resetBtn" disabled>リセット</button>
+            <button id="downloadBtn" disabled>ダウンロード</button>
+        </div>
+
+        <div id="result"></div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const imageInput = document.getElementById('imageInput');
+        const cropBtn = document.getElementById('cropBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const result = document.getElementById('result');
+
+        let img = null;
+        let isDrawing = false;
+        let startX, startY, endX, endY;
+        let croppedImage = null;
+
+        imageInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    img = new Image();
+                    img.onload = function() {
+                        // キャンバスのサイズを調整
+                        const maxWidth = 600;
+                        const maxHeight = 400;
+                        let width = img.width;
+                        let height = img.height;
+
+                        if (width > maxWidth) {
+                            height = (height * maxWidth) / width;
+                            width = maxWidth;
+                        }
+                        if (height > maxHeight) {
+                            width = (width * maxHeight) / height;
+                            height = maxHeight;
+                        }
+
+                        canvas.width = width;
+                        canvas.height = height;
+                        ctx.drawImage(img, 0, 0, width, height);
+                        
+                        resetBtn.disabled = false;
+                        result.innerHTML = '';
+                        croppedImage = null;
+                        downloadBtn.disabled = true;
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // マウスイベント
+        canvas.addEventListener('mousedown', function(e) {
+            if (!img) return;
+            isDrawing = true;
+            const rect = canvas.getBoundingClientRect();
+            startX = e.clientX - rect.left;
+            startY = e.clientY - rect.top;
+        });
+
+        canvas.addEventListener('mousemove', function(e) {
+            if (!isDrawing || !img) return;
+            const rect = canvas.getBoundingClientRect();
+            endX = e.clientX - rect.left;
+            endY = e.clientY - rect.top;
+            
+            // 画像を再描画
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            
+            // 選択範囲を描画
+            ctx.strokeStyle = '#ff0000';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(startX, startY, endX - startX, endY - startY);
+        });
+
+        canvas.addEventListener('mouseup', function(e) {
+            if (!isDrawing || !img) return;
+            isDrawing = false;
+            cropBtn.disabled = false;
+        });
+
+        // 切り取りボタン
+        cropBtn.addEventListener('click', function() {
+            if (!img) return;
+            
+            const width = Math.abs(endX - startX);
+            const height = Math.abs(endY - startY);
+            const x = Math.min(startX, endX);
+            const y = Math.min(startY, endY);
+            
+            if (width > 0 && height > 0) {
+                // 切り取り用のキャンバスを作成
+                const cropCanvas = document.createElement('canvas');
+                const cropCtx = cropCanvas.getContext('2d');
+                cropCanvas.width = width;
+                cropCanvas.height = height;
+                
+                // 元の画像のスケールを計算
+                const scaleX = img.width / canvas.width;
+                const scaleY = img.height / canvas.height;
+                
+                // 切り取り
+                cropCtx.drawImage(img, 
+                    x * scaleX, y * scaleY, width * scaleX, height * scaleY,
+                    0, 0, width, height);
+                
+                // 結果を表示
+                croppedImage = cropCanvas.toDataURL();
+                result.innerHTML = `
+                    <h3>切り取り結果</h3>
+                    <img src="${croppedImage}" alt="切り取り結果">
+                `;
+                downloadBtn.disabled = false;
+            }
+        });
+
+        // リセットボタン
+        resetBtn.addEventListener('click', function() {
+            if (img) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                cropBtn.disabled = true;
+                result.innerHTML = '';
+                croppedImage = null;
+                downloadBtn.disabled = true;
+            }
+        });
+
+        // ダウンロードボタン
+        downloadBtn.addEventListener('click', function() {
+            if (croppedImage) {
+                const link = document.createElement('a');
+                link.download = 'cropped-image.png';
+                link.href = croppedImage;
+                link.click();
+            }
+        });
+    </script>
+</body>
+</html>
